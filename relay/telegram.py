@@ -54,7 +54,7 @@ def format_event(event, source=None):
         entry = source['entry']
         context += '\nВход: ' + (' - '.join(map(str, entry)) if isinstance(entry, list) else str(entry))
     leg = f" · TP {body['tp_index']}" if 'tp_index' in body else ''
-    return f"{titles[kind]}{leg}\n{context}\nID: {body['signal_id']}"
+    return f"{titles[kind]}{leg}\n{context}"
 
 
 class Telegram:
