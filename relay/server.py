@@ -19,9 +19,10 @@ from flask import Flask, request, jsonify, send_from_directory, g
 from flask_sock import Sock
 from signaldesk.wire import validate_event, CONTROL_TYPES
 from signaldesk.core import SignalError
+from relay.telegram import Telegram, format_event
 
 
-def create_app(data_dir=None):
+def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
     root = Path(data_dir or os.environ.get('SIGNALDESK_RELAY_DATA', '/data'))
     subscriber = (root / 'subscriber.token').read_text().strip()
     publisher = (root / 'publisher.token').read_text().strip()
@@ -50,6 +51,42 @@ def create_app(data_dir=None):
             created REAL NOT NULL)''')
         db.execute('INSERT OR IGNORE INTO clients(id,telegram,trading_account,email,description,key_hash,created) VALUES(?,?,?,?,?,?,?)',
                    ('legacy', '', '', '', 'Ранее выданный общий ключ', hashlib.sha256(subscriber.encode()).hexdigest(), time.time()))
+
+    telegram = Telegram(root, dbpath, telegram_transport, telegram_worker)
+    app.extensions['telegram'] = telegram
+
+    @app.get('/telegram')
+    def telegram_status():
+        return jsonify(settings=telegram.settings(), messages=telegram.history())
+
+    @app.post('/telegram/settings')
+    def telegram_settings():
+        try:
+            result = telegram.save(request.get_json(silent=True))
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        telegram.start()
+        return jsonify(result)
+
+    @app.post('/telegram/message')
+    def telegram_message():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or not isinstance(body.get('text'), str) or not 1 <= len(body['text'].strip()) <= 4096:
+            return jsonify(error='Сообщение должно содержать от 1 до 4096 символов.'), 400
+        try:
+            ident = str(uuid.UUID(body.get('id', '')))
+        except (ValueError, TypeError, AttributeError):
+            return jsonify(error='Неверный ID сообщения.'), 400
+        ident = 'custom:' + ident
+        text = body['text'].strip()
+        with lock, closing(sqlite3.connect(dbpath)) as db, db:
+            old = db.execute('SELECT text FROM telegram_outbox WHERE id=?', (ident,)).fetchone()
+            if old:
+                return jsonify(id=ident, duplicate=True), 200 if old[0] == text else 409
+            if not telegram.enqueue(db, ident, text):
+                return jsonify(error='Сначала настройте и включите Telegram.'), 400
+        telegram.start()
+        return jsonify(id=ident, queued=True), 202
 
     def security_notice(ident, kind, message):
         with lock, closing(sqlite3.connect(dbpath)) as db, db:
@@ -303,6 +340,7 @@ def create_app(data_dir=None):
                 if old:
                     return jsonify(id=ident, duplicate=True), 200 if old[0] == digest else 409
                 destinations = list(peers.values())
+                source = None
                 if kind in CONTROL_TYPES:
                     source = db.execute('SELECT payload,recipients FROM signals WHERE id=?', (body['signal_id'],)).fetchone()
                     if source and body.get('tp_index',1) > len(json.loads(source[0])['event_body']['take_profits']):
@@ -319,9 +357,11 @@ def create_app(data_dir=None):
                                (ident,body['signal_id'],kind,json.dumps(event),json.dumps(recipients),'{}',time.time()))
                     if kind == 'terminate_signal':
                         db.execute('UPDATE signals SET archived=1 WHERE id=?', (body['signal_id'],))
+                telegram.enqueue(db, ident, format_event(event, json.loads(source[0])['event_body'] if source else None))
             event['event_body']['expires_at'] = time.time() + 120
             raw = json.dumps(event)
             for peer in destinations: peer['queue'].put_nowait(raw)
+            telegram.start()
             return jsonify(id=ident, queued_clients=len(destinations), executed=False,
                            unavailable_clients=[c for c in original if c not in recipients] if kind in CONTROL_TYPES else []), 202
 

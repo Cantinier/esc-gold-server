@@ -23,9 +23,9 @@ async function api(path,body){
 activity.setReader(path=>rawApi(path));
 window.addEventListener('activity-unlock',()=>{buttons();activity.sync();});
 let previousConnectionState='';
-async function status(){if(!token)return;try{const data=await api('/status');const state=`Десктопов онлайн: ${data.connected_clients}`;if(state!==previousConnectionState){activity.log(state);previousConnectionState=state;}$('status').textContent=state;await loadClients();await loadSignals();await loadNotifications();}catch{if(previousConnectionState!=='offline')activity.log('Нет связи с сервером');previousConnectionState='offline';$('status').textContent='Нет связи с сервером';}}
-$('login-form').onsubmit=async e=>{e.preventDefault();token=$('token').value;error();try{await api('/status');$('login').hidden=true;$('workspace').hidden=false;$('activity-panel').hidden=false;activity.log('Авторизация выполнена');$('logout').hidden=false;$('publisher-settings').hidden=false;$('notifications-button').hidden=false;$('token').value='';await status();}catch(e){token='';error(e.message);}};
-$('logout').onclick=()=>{activity.stop();$('activity-panel').hidden=true;closeClientDialog();$('online-clients').replaceChildren();$('all-clients').replaceChildren();token='';checked=null;$('login').hidden=false;$('workspace').hidden=true;$('logout').hidden=true;$('publisher-settings').hidden=true;$('notifications-button').hidden=true;$('notifications-dialog').close();$('notifications-list').replaceChildren();$('status').textContent='Вход не выполнен';buttons();};
+async function status(){if(!token)return;try{const data=await api('/status');const state=`Десктопов онлайн: ${data.connected_clients}`;if(state!==previousConnectionState){activity.log(state);previousConnectionState=state;}$('status').textContent=state;await loadClients();await loadSignals();await loadNotifications();await loadTelegram();}catch{if(previousConnectionState!=='offline')activity.log('Нет связи с сервером');previousConnectionState='offline';$('status').textContent='Нет связи с сервером';}}
+$('login-form').onsubmit=async e=>{e.preventDefault();token=$('token').value;error();try{await api('/status');$('login').hidden=true;$('workspace').hidden=false;$('activity-panel').hidden=false;activity.log('Авторизация выполнена');$('logout').hidden=false;$('publisher-settings').hidden=false;$('notifications-button').hidden=false;$('telegram-button').hidden=false;$('token').value='';await status();}catch(e){token='';error(e.message);}};
+$('logout').onclick=()=>{activity.stop();$('activity-panel').hidden=true;closeClientDialog();$('online-clients').replaceChildren();$('all-clients').replaceChildren();token='';checked=null;$('login').hidden=false;$('workspace').hidden=true;$('logout').hidden=true;$('publisher-settings').hidden=true;$('notifications-button').hidden=true;$('telegram-button').hidden=true;$('telegram-dialog').close();$('telegram-token').value='';$('telegram-text').value='';$('notifications-dialog').close();$('notifications-list').replaceChildren();$('status').textContent='Вход не выполнен';buttons();};
 for(const id of ids)$(id).addEventListener('input',()=>{checked=null;$('badge').textContent='Черновик';$('result').textContent='Сначала проверьте параметры.';save();render();buttons();});
 $('signal-form').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;checked=null;buttons();error();try{const data=await api('/validate',payload());checked=data;$('json').textContent=JSON.stringify(data,null,2);$('badge').textContent='Проверен';$('result').textContent=locked?'Параметры зафиксированы. Повторная отправка использует тот же ID.':'Проверка пройдена. Отправка автоматически запускает открытие ордеров в подключённых десктопах.';}catch(e){error(e.message);}finally{busy=false;buttons();}};
 $('send').onclick=async()=>{if(busy||!checked)return;busy=true;locked=true;save();buttons();error();try{const r=await api('/signals',checked);$('result').textContent=r.duplicate?'Этот ID уже принят ранее. Повторная рассылка не выполнялась.':`Сигнал принят для рассылки. Подключённых десктопов: ${r.queued_clients}. Исполнение проверьте в MT5.`;$('badge').textContent='Принят';checked=null;}catch(e){error(e.message);$('result').textContent='Результат не подтверждён. Можно повторить отправку с тем же ID; новый сигнал не создаётся.';}finally{busy=false;buttons();await status();}};
@@ -189,3 +189,32 @@ $('notifications-button').onclick=async()=>{
  catch(e){error(e.message);}
 };
 $('close-notifications').onclick=()=>$('notifications-dialog').close();
+
+const telegramStates={pending:'В очереди',sending:'Отправляется',sent:'Опубликовано',error:'Ошибка',unknown:'Результат неизвестен',expired:'Срок истёк',cancelled:'Отменено'};
+const telegramSeen=new Map();let telegramData=null,telegramBusy=false,telegramDraft=null;
+async function loadTelegram(){
+ if(!token)return;const data=await api('/telegram');if(!token)return;telegramData=data;
+ for(const item of data.messages){if(telegramSeen.get(item.id)!==item.state){telegramSeen.set(item.id,item.state);activity.log('Telegram · '+item.id+' · '+(telegramStates[item.state]||item.state)+' · '+item.detail);}}
+ if($('telegram-dialog').open)renderTelegram();
+}
+function renderTelegram(){
+ const list=$('telegram-history');list.replaceChildren();
+ for(const item of telegramData?.messages||[]){const card=node('article','','client-card');card.append(node('h3',(telegramStates[item.state]||item.state)+' · '+new Date(item.created*1000).toLocaleString('ru-RU')),node('p',item.detail),node('p','Канал: '+item.channel,'muted'),node('pre',item.text));list.append(card);}
+ if(!list.children.length)list.append(node('p','Отправок пока нет.','muted'));
+}
+$('telegram-button').onclick=async()=>{
+ try{await loadTelegram();const s=telegramData.settings;$('telegram-enabled').checked=s.enabled;$('telegram-channel').value=s.channel;$('telegram-token').value='';$('telegram-configured').textContent=s.configured?'Токен сохранён. Введите новый только для замены.':'Токен ещё не задан.';$('telegram-result').textContent='';renderTelegram();$('telegram-dialog').showModal();}catch(e){error(e.message);}
+};
+$('close-telegram').onclick=()=>{if(!telegramBusy){$('telegram-dialog').close();$('telegram-token').value='';}};
+$('telegram-dialog').addEventListener('cancel',e=>{if(telegramBusy)e.preventDefault();else $('telegram-token').value='';});
+$('telegram-settings-form').onsubmit=async e=>{
+ e.preventDefault();if(telegramBusy)return;telegramBusy=true;$('telegram-save').disabled=true;
+ try{await api('/telegram/settings',{enabled:$('telegram-enabled').checked,token:$('telegram-token').value.trim(),channel:$('telegram-channel').value.trim()});$('telegram-token').value='';$('telegram-result').textContent='Настройки сохранены.';await loadTelegram();$('telegram-configured').textContent=telegramData.settings.configured?'Токен сохранён.':'Токен ещё не задан.';}catch(e){$('telegram-result').textContent=e.message;}finally{telegramBusy=false;$('telegram-save').disabled=false;}
+};
+$('telegram-text').addEventListener('input',()=>{telegramDraft=null;});
+$('telegram-message-form').onsubmit=async e=>{
+ e.preventDefault();if(telegramBusy)return;const text=$('telegram-text').value.trim();if(!text)return;
+ if(!telegramDraft||telegramDraft.text!==text)telegramDraft={id:uuid(),text};
+ telegramBusy=true;$('telegram-send').disabled=true;
+ try{await api('/telegram/message',telegramDraft);$('telegram-result').textContent='Сообщение в очереди. Результат появится ниже.';$('telegram-text').value='';telegramDraft=null;await loadTelegram();}catch(e){$('telegram-result').textContent=e.message;}finally{telegramBusy=false;$('telegram-send').disabled=false;}
+};

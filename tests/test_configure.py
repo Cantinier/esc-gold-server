@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -18,7 +19,7 @@ class ConfigureTests(unittest.TestCase):
                 return subprocess.run([os.environ.get('BASH_FOR_TEST', 'bash'), 'scripts/configure.sh'],
                                       cwd=root, input=answers.encode('utf-8'), capture_output=True)
 
-            self.assertEqual(run('\n\n').returncode, 0)
+            self.assertEqual(run('\n\n\n').returncode, 0)
             self.assertIn('BIND_ADDRESS=127.0.0.1\nPORT=4113', (root / '.env').read_text())
             with (root / '.env').open('a') as stream:
                 stream.write('COMPOSE_PROJECT_NAME=test-project\n')
@@ -32,3 +33,14 @@ class ConfigureTests(unittest.TestCase):
             before = (root / '.env').read_bytes()
             self.assertNotEqual(run('127.0.0.1\n').returncode, 0)
             self.assertEqual((root / '.env').read_bytes(), before)
+
+    def test_initial_telegram_input_is_hidden_and_saved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'scripts').mkdir()
+            shutil.copyfile(Path(__file__).resolve().parents[1]/'scripts/configure.sh',root/'scripts/configure.sh')
+            token='123456789:'+'x'*35
+            result=subprocess.run([os.environ.get('BASH_FOR_TEST','bash'),'scripts/configure.sh'],cwd=root,
+                                  input=('\n\ninvalid\n'+token+'\ninvalid\n-1001234567890\n').encode(),capture_output=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertNotIn(token.encode(),result.stdout+result.stderr)
+            self.assertEqual(json.loads((root/'state/telegram.json').read_text()),{'token':token,'channel':'-1001234567890'})

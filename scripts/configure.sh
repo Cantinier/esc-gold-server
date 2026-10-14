@@ -38,6 +38,26 @@ while true; do
   fi
   echo 'Введите целый номер порта от 1 до 65535.'
 done
+telegram_token=''
+telegram_channel=''
+telegram_init=false
+if [[ ! -f state/telegram.json && ! -f state/published.sqlite3 ]]; then
+  telegram_init=true
+  echo 'Telegram: токен бота вводится скрыто. Enter — пока не подключать.'
+  while true; do
+    read -r -s -p 'Токен Telegram-бота: ' telegram_token || { echo 'Ввод прерван.' >&2; exit 1; }
+    printf '\n'
+    [[ -z $telegram_token || $telegram_token =~ ^[0-9]{5,20}:[A-Za-z0-9_-]{20,100}$ ]] && break
+    echo 'Неверный формат токена. Повторите ввод.'
+  done
+  if [[ -n $telegram_token ]]; then
+    while true; do
+      read -r -p 'ID канала (например -1001234567890) или @имя: ' telegram_channel || { echo 'Ввод прерван.' >&2; exit 1; }
+      [[ $telegram_channel =~ ^-?[0-9]{1,20}$ || $telegram_channel =~ ^@[A-Za-z][A-Za-z0-9_]{4,31}$ ]] && break
+      echo 'Укажите числовой ID канала или @имя.'
+    done
+  fi
+fi
 temp=$(mktemp .env.XXXXXX)
 trap 'rm -f -- "$temp"' EXIT
 if [[ -f .env ]]; then
@@ -45,4 +65,9 @@ if [[ -f .env ]]; then
 fi
 printf 'BIND_ADDRESS=%s\nPORT=%s\n' "$address" "$port" >> "$temp"
 mv -- "$temp" .env
+if [[ $telegram_init == true ]]; then
+  mkdir -p state
+  printf '{"token":"%s","channel":"%s"}\n' "$telegram_token" "$telegram_channel" > state/telegram.json
+  chmod 600 state/telegram.json
+fi
 echo "Настройки сохранены: $address:$port"

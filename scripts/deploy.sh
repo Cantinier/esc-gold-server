@@ -6,6 +6,7 @@ case "${1:-}" in
   *) echo 'Usage: sudo bash scripts/deploy.sh [--non-interactive]' >&2; exit 1 ;;
 esac
 install -d -m 0700 -o 10001 -g 10001 state
+if [[ -f state/telegram.json ]]; then chown 10001:10001 state/telegram.json; fi
 docker compose build
 docker compose run --rm --no-deps relay python -m relay.setup
 docker compose up -d --wait --wait-timeout 90
