@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 source "$(dirname -- "$0")/common.sh"
-[[ -f .env ]] || cp .env.example .env
+case "${1:-}" in
+  '') bash scripts/configure.sh ;;
+  --non-interactive) [[ -f .env ]] || { echo 'Configure .env first with bash scripts/configure.sh.' >&2; exit 1; } ;;
+  *) echo 'Usage: sudo bash scripts/deploy.sh [--non-interactive]' >&2; exit 1 ;;
+esac
 install -d -m 0700 -o 10001 -g 10001 state
 docker compose build
 docker compose run --rm --no-deps relay python -m relay.setup
