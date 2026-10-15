@@ -20,6 +20,7 @@ from flask_sock import Sock
 from signaldesk.wire import validate_event, CONTROL_TYPES
 from signaldesk.core import SignalError
 from relay.telegram import Telegram, format_event
+from relay.statistics import register_statistics
 
 
 def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
@@ -54,6 +55,7 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
 
     telegram = Telegram(root, dbpath, telegram_transport, telegram_worker)
     app.extensions['telegram'] = telegram
+    register_statistics(app, dbpath)
 
     @app.get('/telegram')
     def telegram_status():
@@ -140,9 +142,26 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
 
     @app.before_request
     def authorize():
-        if request.path in ('/', '/health') or request.path.startswith('/static/'):
+        if request.path in ('/', '/health', '/statistics') or request.path.startswith('/static/'):
             return
         authorization = request.headers.get('Authorization', '')
+        if request.path == '/api/positions/closed':
+            row = client_for_key(authorization[7:]) if authorization.startswith('Bearer ') else None
+            if not row: return jsonify(error='Unauthorized'),401
+            try:
+                stamp=request.headers.get('X-Report-Time','')
+                if abs(time.time()-int(stamp))>300: raise ValueError()
+                with closing(sqlite3.connect(dbpath)) as db:
+                    binding=db.execute('SELECT public_key FROM device_bindings WHERE client_id=?',row).fetchone()
+                if not binding: raise ValueError()
+                signature=base64.b64decode(request.headers.get('X-Device-Signature',''),validate=True)
+                raw=request.get_data()
+                proof=('SignalDesk-report-v1\n'+stamp+'\n'+hashlib.sha256(raw).hexdigest()).encode()
+                Ed25519PublicKey.from_public_bytes(base64.b64decode(binding[0])).verify(signature,proof)
+            except Exception:
+                return jsonify(error='Device signature rejected'),403
+            g.client_id=row[0]
+            return
         if request.path == '/ws':
             row = client_for_key(authorization[7:]) if authorization.startswith('Bearer ') else None
             if row:
@@ -442,8 +461,8 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
                     return
                 if not binding:
                     db.execute('INSERT INTO device_bindings VALUES(?,?,?)',(g.client_id,public_key,time.time()))
-                email = db.execute('SELECT email FROM clients WHERE id=?', (g.client_id,)).fetchone()[0]
-            ws.send(json.dumps({'event_type':'auth_success','event_body':{'client_id':g.client_id,'email':email,'protocol_version':3}}))
+                email, trading_account = db.execute('SELECT email,trading_account FROM clients WHERE id=?', (g.client_id,)).fetchone()
+            ws.send(json.dumps({'event_type':'auth_success','event_body':{'client_id':g.client_id,'email':email,'trading_account':trading_account,'protocol_version':3}}))
             peers[connection_id] = peer
         try:
             while ws.connected:
