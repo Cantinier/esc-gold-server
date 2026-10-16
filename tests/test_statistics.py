@@ -15,7 +15,7 @@ from relay.server import create_app
 def position():
     return dict(account='123',broker='Test',trade_mode=0,position_id='77',symbol='XAUUSD',side='SELL',volume=.03,
                 entry_price=4185,close_price=4179,sl=4193,tp=4179,profit=18,commission=-1,swap=-.5,fee=0,
-                net_profit=16.5,currency='USD',opened_at=1704060000,closed_at=1704063600,reason=5,magic=26101201,deal_ids=['10','11'])
+                net_profit=16.5,currency='USD',opened_at=1704060000,closed_at=1704067200,reason=5,magic=26101201,deal_ids=['10','11'])
 
 
 class StatisticsTests(unittest.TestCase):
@@ -65,3 +65,8 @@ class StatisticsTests(unittest.TestCase):
         data=self.http.get('/api/statistics?page=2',headers=self.admin).json
         self.assertEqual(data['total'],101);self.assertEqual(len(data['rows']),1)
         self.assertEqual({x['currency'] for x in data['totals']},{'USD','EUR'})
+
+    def test_broker_midnight_filter_does_not_add_three_hours(self):
+        self.assertEqual(self.send(dict(position(),closed_at=1704063600)).status_code,201)
+        self.assertEqual(self.http.get('/api/statistics?from=2024-01-01&to=2024-01-01',headers=self.admin).json['total'],0)
+        self.assertEqual(self.http.get('/api/statistics?from=2023-12-31&to=2023-12-31',headers=self.admin).json['total'],1)

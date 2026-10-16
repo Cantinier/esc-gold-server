@@ -78,7 +78,8 @@ def register_statistics(app, dbpath):
             clauses.append('(instr(lower(COALESCE(c.email,p.email)),lower(?))>0 OR instr(p.account,?)>0)');args.extend([search,search])
         try:
             start=request.args.get('from','');end=request.args.get('to','')
-            tz=timezone(timedelta(hours=3))
+            # Filter the same broker wall-clock dates that the table displays.
+            tz=timezone.utc
             a=datetime.strptime(start,'%Y-%m-%d').replace(tzinfo=tz) if start else None
             b=datetime.strptime(end,'%Y-%m-%d').replace(tzinfo=tz)+timedelta(days=1) if end else None
             if a and b and a>=b: raise ValueError()

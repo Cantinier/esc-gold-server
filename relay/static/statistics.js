@@ -1,7 +1,8 @@
 'use strict';
 const el=id=>document.getElementById(id);let password='',page=1,busy=false,total=0;
 const number=v=>v===null||v===undefined?'—':new Intl.NumberFormat('ru-RU',{maximumFractionDigits:8}).format(v);
-const date=v=>new Date(v*1000).toLocaleString('ru-RU',{timeZone:'Europe/Moscow'});
+// Preserve MT5 history wall time: UTC formatting prevents an extra browser offset.
+const date=v=>new Date(v*1000).toLocaleString('ru-RU',{timeZone:'UTC'});
 const reasons={0:'Вручную',1:'Мобильный терминал',2:'Веб-терминал',3:'Советник / API',4:'Stop Loss',5:'Take Profit',6:'Stop Out'};
 function node(tag,text){const n=document.createElement(tag);n.textContent=text;return n;}
 function fail(text=''){el('stats-error').textContent=text;el('stats-error').hidden=!text;}
