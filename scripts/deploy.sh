@@ -5,6 +5,7 @@ case "${1:-}" in
   --non-interactive) [[ -f .env ]] || { echo 'Configure .env first with bash scripts/configure.sh.' >&2; exit 1; } ;;
   *) echo 'Usage: sudo bash scripts/deploy.sh [--non-interactive]' >&2; exit 1 ;;
 esac
+bash scripts/check-ports.sh
 install -d -m 0700 -o 10001 -g 10001 state
 if [[ -f state/telegram.json ]]; then chown 10001:10001 state/telegram.json; fi
 docker compose build

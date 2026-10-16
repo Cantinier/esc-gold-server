@@ -19,9 +19,13 @@ valid_address() {
   done
 }
 address=$(current_value BIND_ADDRESS)
-port=$(current_value PORT)
+admin_port=$(current_value ADMIN_PORT)
+admin_port=${admin_port:-$(current_value PORT)}
+ws_port=$(current_value WS_PORT)
 address=${address:-127.0.0.1}
-port=${port:-4113}
+admin_port=${admin_port:-4113}
+ws_port=${ws_port:-4114}
+if [[ $ws_port == "$admin_port" ]]; then ws_port=4115; fi
 echo 'Настройка доступа к ESC GOLD SERVER'
 echo '0.0.0.0 — доступ по IP с других устройств; 127.0.0.1 — только с VPS (для HTTPS-прокси).'
 while true; do
@@ -30,13 +34,22 @@ while true; do
   if valid_address "$answer"; then address=$answer; break; fi
   echo 'Введите IPv4-адрес, например 0.0.0.0 или 127.0.0.1.'
 done
-while true; do
-  read -r -p "Порт [${port}]: " answer || { echo 'Ввод прерван. Настройки не изменены.' >&2; exit 1; }
-  answer=${answer:-$port}
+ask_port() {
+  local label=$1 default=$2 answer
+  while true; do
+  read -r -p "$label [$default]: " answer || { echo 'Ввод прерван. Настройки не изменены.' >&2; return 1; }
+  answer=${answer:-$default}
   if [[ $answer =~ ^[0-9]{1,5}$ ]] && (( 10#$answer >= 1 && 10#$answer <= 65535 )); then
-    port=$((10#$answer)); break
+    printf '%s' "$((10#$answer))"; return
   fi
-  echo 'Введите целый номер порта от 1 до 65535.'
+  echo 'Введите целый номер порта от 1 до 65535.' >&2
+  done
+}
+admin_port=$(ask_port 'Порт админки' "$admin_port")
+while true; do
+  ws_port=$(ask_port 'Порт WebSocket для клиентов' "$ws_port")
+  [[ $ws_port != "$admin_port" ]] && break
+  echo 'Порт WebSocket должен отличаться от порта админки.'
 done
 telegram_token=''
 telegram_channel=''
@@ -61,13 +74,14 @@ fi
 temp=$(mktemp .env.XXXXXX)
 trap 'rm -f -- "$temp"' EXIT
 if [[ -f .env ]]; then
-  awk '!/^[[:space:]]*(BIND_ADDRESS|PORT)[[:space:]]*=/' .env > "$temp"
+  awk '!/^[[:space:]]*(BIND_ADDRESS|PORT|ADMIN_PORT|WS_PORT)[[:space:]]*=/' .env > "$temp"
 fi
-printf 'BIND_ADDRESS=%s\nPORT=%s\n' "$address" "$port" >> "$temp"
+printf 'BIND_ADDRESS=%s\nADMIN_PORT=%s\nWS_PORT=%s\n' "$address" "$admin_port" "$ws_port" >> "$temp"
 mv -- "$temp" .env
 if [[ $telegram_init == true ]]; then
   mkdir -p state
   printf '{"token":"%s","channel":"%s"}\n' "$telegram_token" "$telegram_channel" > state/telegram.json
   chmod 600 state/telegram.json
 fi
-echo "Настройки сохранены: $address:$port"
+echo "Админка: http://$address:$admin_port/"
+echo "WebSocket: ws://$address:$ws_port/ws"

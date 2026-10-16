@@ -5,6 +5,8 @@ git fetch origin
 old=$(git rev-parse HEAD)
 bash scripts/backup.sh
 git merge --ff-only origin/main
+if ! bash scripts/check-ports.sh; then bash scripts/configure.sh; fi
+bash scripts/check-ports.sh
 docker compose build
 docker compose up -d --wait --wait-timeout 90
 printf 'Updated. Previous code revision: %s\n' "$old"

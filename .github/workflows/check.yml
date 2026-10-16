@@ -13,3 +13,11 @@ jobs:
       - run: shellcheck -e SC1091 scripts/*.sh
       - run: docker compose config --quiet
       - run: docker compose build
+      - name: Verify separate admin and client ports
+        run: |
+          sudo install -d -m 0700 -o 10001 -g 10001 state
+          docker compose run --rm --no-deps relay python -m relay.setup
+          docker compose up -d --wait --wait-timeout 90
+          python tests/gateway_smoke.py
+      - if: always()
+        run: docker compose down
