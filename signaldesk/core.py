@@ -34,7 +34,7 @@ def dec(value):
 
 def parse_signal(text: str) -> Signal:
     text = text.replace('−', '-').replace('–', '-').replace('—', '-')
-    heads = list(re.finditer(r'\b(BUY|SELL)\s+([A-Z][A-Z0-9_.#-]*)', text, re.I))
+    heads = list(re.finditer(r'\b(BUY|SELL)\s+(?:LIMIT\s+)?([A-Z][A-Z0-9_.#-]*)', text, re.I))
     if len(heads) != 1:
         raise SignalError('Вставьте ровно один сигнал с BUY или SELL и названием инструмента.')
     head = heads[0]

@@ -59,7 +59,8 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
 
     @app.get('/telegram')
     def telegram_status():
-        return jsonify(settings=telegram.settings(), messages=telegram.history())
+        return jsonify(settings=telegram.settings(), messages=telegram.history(),
+                       incoming=telegram.inbox.history(),monitor_status=telegram.inbox.detail)
 
     @app.post('/telegram/settings')
     def telegram_settings():
@@ -345,10 +346,14 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
 
     @app.post('/signals')
     def publish():
+        result, status = publish_event(request.get_json())
+        return jsonify(result), status
+
+    def publish_event(packet, from_telegram=False):
         try:
-            event, _, _ = validate_event(request.get_json())
+            event, _, _ = validate_event(packet)
         except SignalError as exc:
-            return jsonify(error=str(exc)), 400
+            return dict(error=str(exc)), 400
         body = event['event_body']
         ident = body['id']
         kind = event['event_type']
@@ -357,16 +362,16 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
             with closing(sqlite3.connect(dbpath)) as db, db:
                 old = db.execute('SELECT digest FROM published WHERE id=?', (ident,)).fetchone()
                 if old:
-                    return jsonify(id=ident, duplicate=True), 200 if old[0] == digest else 409
+                    return dict(id=ident, duplicate=True), 200 if old[0] == digest else 409
                 destinations = list(peers.values())
                 source = None
                 if kind in CONTROL_TYPES:
                     source = db.execute('SELECT payload,recipients FROM signals WHERE id=?', (body['signal_id'],)).fetchone()
                     if source and body.get('tp_index',1) > len(json.loads(source[0])['event_body']['take_profits']):
-                        return jsonify(error='Такого тейка нет у сигнала.'), 400
+                        return dict(error='Такого тейка нет у сигнала.'), 400
                     original = json.loads(source[1]) if source else []
                 if any(p['queue'].full() for p in destinations):
-                    return jsonify(error='Subscriber queue full; signal not accepted'), 503
+                    return dict(error='Subscriber queue full; signal not accepted'), 503
                 recipients = sorted({p['client_id'] for p in destinations})
                 db.execute('INSERT INTO published VALUES(?,?,?)', (ident,digest,time.time()))
                 if kind == 'open_order':
@@ -376,12 +381,13 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
                                (ident,body['signal_id'],kind,json.dumps(event),json.dumps(recipients),'{}',time.time()))
                     if kind == 'terminate_signal':
                         db.execute('UPDATE signals SET archived=1 WHERE id=?', (body['signal_id'],))
-                telegram.enqueue(db, ident, format_event(event, json.loads(source[0])['event_body'] if source else None))
+                if not from_telegram:
+                    telegram.enqueue(db, ident, format_event(event, json.loads(source[0])['event_body'] if source else None))
             event['event_body']['expires_at'] = time.time() + 120
             raw = json.dumps(event)
             for peer in destinations: peer['queue'].put_nowait(raw)
             telegram.start()
-            return jsonify(id=ident, queued_clients=len(destinations), executed=False,
+            return dict(id=ident, queued_clients=len(destinations), executed=False,
                            unavailable_clients=[c for c in original if c not in recipients] if kind in CONTROL_TYPES else []), 202
 
     def receive_report(client_id, raw):
@@ -483,4 +489,5 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
             with lock:
                 peers.pop(connection_id, None)
 
+    telegram.set_publisher(publish_event)
     return app

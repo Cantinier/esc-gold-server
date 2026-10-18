@@ -7,6 +7,7 @@ import threading
 import time
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
+from relay.telegram_inbox import TelegramInbox
 
 
 def validate_settings(token, channel):
@@ -68,32 +69,51 @@ class Telegram:
         self.guard = threading.Lock()
         with closing(sqlite3.connect(dbpath)) as db, db:
             db.execute('CREATE TABLE IF NOT EXISTS telegram_settings(id INTEGER PRIMARY KEY CHECK(id=1), token TEXT, channel TEXT, enabled INTEGER)')
+            columns={r[1] for r in db.execute('PRAGMA table_info(telegram_settings)')}
+            if 'monitor_enabled' not in columns:
+                db.execute('ALTER TABLE telegram_settings ADD COLUMN monitor_enabled INTEGER NOT NULL DEFAULT 0')
+                db.execute('ALTER TABLE telegram_settings ADD COLUMN monitor_since REAL NOT NULL DEFAULT 0')
             db.execute('CREATE TABLE IF NOT EXISTS telegram_outbox(id TEXT PRIMARY KEY, text TEXT, channel TEXT, state TEXT, detail TEXT, created REAL, message_id INTEGER)')
             if not db.execute('SELECT 1 FROM telegram_settings').fetchone():
                 path = root / 'telegram.json'
                 settings = json.loads(path.read_text()) if path.exists() else {}
                 token, channel = settings.get('token', ''), settings.get('channel', '')
                 if token or channel: validate_settings(token, channel)
-                db.execute('INSERT INTO telegram_settings VALUES(1,?,?,?)', (token, channel, int(bool(token))))
+                db.execute('INSERT INTO telegram_settings(id,token,channel,enabled) VALUES(1,?,?,?)', (token, channel, int(bool(token))))
             db.execute("UPDATE telegram_outbox SET state='unknown',detail='Сервер перезапущен во время отправки. Проверьте канал.' WHERE state='sending'")
+        self.inbox=TelegramInbox(dbpath,self.monitor_settings)
+        self.start()
+
+    def monitor_settings(self):
+        with closing(sqlite3.connect(self.dbpath)) as db:
+            return db.execute('SELECT token,channel,monitor_enabled,monitor_since FROM telegram_settings WHERE id=1').fetchone()
+
+    def set_publisher(self, publisher):
+        self.inbox.publisher=publisher
         self.start()
 
     def settings(self):
         with closing(sqlite3.connect(self.dbpath)) as db:
             token, channel, enabled = db.execute('SELECT token,channel,enabled FROM telegram_settings WHERE id=1').fetchone()
-        return {'configured':bool(token), 'channel':channel, 'enabled':bool(enabled)}
+        return {'configured':bool(token), 'channel':channel, 'enabled':bool(enabled),
+                'monitor_enabled':bool(self.monitor_settings()[2])}
 
     def save(self, body):
         if not isinstance(body, dict) or type(body.get('enabled')) is not bool:
             raise ValueError('Укажите состояние Telegram.')
         with closing(sqlite3.connect(self.dbpath)) as db, db:
             old = db.execute('SELECT token,channel,enabled FROM telegram_settings WHERE id=1').fetchone()
+            monitor,since=db.execute('SELECT monitor_enabled,monitor_since FROM telegram_settings WHERE id=1').fetchone()
+            enabled=body.get('monitor_enabled',bool(monitor))
+            if type(enabled) is not bool:raise ValueError('Укажите состояние мониторинга.')
             token = body.get('token') or old[0]
             channel = body.get('channel', '')
-            if token or channel or body['enabled']: validate_settings(token, channel)
+            if token or channel or body['enabled'] or enabled: validate_settings(token, channel)
+            if enabled and (not monitor or (token,channel)!=old[:2]):since=time.time()
             if (token, channel, int(body['enabled'])) != old:
                 db.execute("UPDATE telegram_outbox SET state='cancelled',detail='Настройки Telegram изменены до отправки.' WHERE state='pending'")
             db.execute('UPDATE telegram_settings SET token=?,channel=?,enabled=? WHERE id=1', (token, channel, int(body['enabled'])))
+            db.execute('UPDATE telegram_settings SET monitor_enabled=?,monitor_since=? WHERE id=1',(int(enabled),since))
         return self.settings()
 
     def enqueue(self, db, ident, text):
@@ -131,7 +151,8 @@ class Telegram:
         return True
 
     def start(self):
-        if not self.worker_enabled or not self.settings()['enabled']: return
+        settings=self.settings()
+        if not self.worker_enabled or not (settings['enabled'] or settings['monitor_enabled']): return
         with self.guard:
             if self.thread is None:
                 self.thread = threading.Thread(target=self.run, daemon=True)
@@ -142,6 +163,7 @@ class Telegram:
         while not self.stop.is_set():
             try:
                 processed = self.process_one()
+                self.inbox.poll()
             except Exception:
                 processed = False
             if processed:
