@@ -8,6 +8,7 @@ import time
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from relay.telegram_inbox import TelegramInbox
+from relay.telegram_admin import TelegramAdmin, parse_admins
 
 
 def validate_settings(token, channel):
@@ -73,6 +74,8 @@ class Telegram:
             if 'monitor_enabled' not in columns:
                 db.execute('ALTER TABLE telegram_settings ADD COLUMN monitor_enabled INTEGER NOT NULL DEFAULT 0')
                 db.execute('ALTER TABLE telegram_settings ADD COLUMN monitor_since REAL NOT NULL DEFAULT 0')
+            if 'admin_ids' not in columns:
+                db.execute("ALTER TABLE telegram_settings ADD COLUMN admin_ids TEXT NOT NULL DEFAULT ''")
             db.execute('CREATE TABLE IF NOT EXISTS telegram_outbox(id TEXT PRIMARY KEY, text TEXT, channel TEXT, state TEXT, detail TEXT, created REAL, message_id INTEGER)')
             if not db.execute('SELECT 1 FROM telegram_settings').fetchone():
                 path = root / 'telegram.json'
@@ -81,7 +84,9 @@ class Telegram:
                 if token or channel: validate_settings(token, channel)
                 db.execute('INSERT INTO telegram_settings(id,token,channel,enabled) VALUES(1,?,?,?)', (token, channel, int(bool(token))))
             db.execute("UPDATE telegram_outbox SET state='unknown',detail='Сервер перезапущен во время отправки. Проверьте канал.' WHERE state='sending'")
+        self.admin=TelegramAdmin(dbpath)
         self.inbox=TelegramInbox(dbpath,self.monitor_settings)
+        self.inbox.admin=self.admin
         self.start()
 
     def monitor_settings(self):
@@ -96,6 +101,7 @@ class Telegram:
         with closing(sqlite3.connect(self.dbpath)) as db:
             token, channel, enabled = db.execute('SELECT token,channel,enabled FROM telegram_settings WHERE id=1').fetchone()
         return {'configured':bool(token), 'channel':channel, 'enabled':bool(enabled),
+                'admin_ids':', '.join(self.admin.settings()[1]),
                 'monitor_enabled':bool(self.monitor_settings()[2])}
 
     def save(self, body):
@@ -107,6 +113,8 @@ class Telegram:
             enabled=body.get('monitor_enabled',bool(monitor))
             if type(enabled) is not bool:raise ValueError('Укажите состояние мониторинга.')
             token = body.get('token') or old[0]
+            old_admins=db.execute('SELECT admin_ids FROM telegram_settings WHERE id=1').fetchone()[0]
+            admins=', '.join(parse_admins(body.get('admin_ids',old_admins)))
             channel = body.get('channel', '')
             if token or channel or body['enabled'] or enabled: validate_settings(token, channel)
             if enabled and (not monitor or (token,channel)!=old[:2]):since=time.time()
@@ -114,6 +122,10 @@ class Telegram:
                 db.execute("UPDATE telegram_outbox SET state='cancelled',detail='Настройки Telegram изменены до отправки.' WHERE state='pending'")
             db.execute('UPDATE telegram_settings SET token=?,channel=?,enabled=? WHERE id=1', (token, channel, int(body['enabled'])))
             db.execute('UPDATE telegram_settings SET monitor_enabled=?,monitor_since=? WHERE id=1',(int(enabled),since))
+            db.execute('UPDATE telegram_settings SET admin_ids=? WHERE id=1',(admins,))
+            if token != old[0] or admins != old_admins:
+                db.execute("UPDATE telegram_admin_jobs SET state='cancelled' WHERE state='pending'")
+                db.execute('DELETE FROM telegram_admin_buttons')
         return self.settings()
 
     def enqueue(self, db, ident, text):
@@ -152,7 +164,7 @@ class Telegram:
 
     def start(self):
         settings=self.settings()
-        if not self.worker_enabled or not (settings['enabled'] or settings['monitor_enabled']): return
+        if not self.worker_enabled or not (settings['enabled'] or settings['monitor_enabled'] or settings['admin_ids']): return
         with self.guard:
             if self.thread is None:
                 self.thread = threading.Thread(target=self.run, daemon=True)
@@ -163,6 +175,7 @@ class Telegram:
         while not self.stop.is_set():
             try:
                 processed = self.process_one()
+                processed = self.admin.process_one() or processed
                 self.inbox.poll()
             except Exception:
                 processed = False

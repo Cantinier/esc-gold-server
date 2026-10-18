@@ -94,8 +94,8 @@ let historyDeleting=false;
 async function deleteHistory(signal=null){
  if(historyDeleting)return;
  historyDeleting=true;$('delete-history').disabled=true;error();
- try{const result=await api('/signals/history/delete',signal?{id:signal.id}:{all:true});
- const message=$('command-result');message.hidden=false;message.textContent=`Удалено из истории: ${result.deleted}.`;
+ try{const result=await api(signal&&!signal.archived?'/signals/delete':'/signals/history/delete',signal?{id:signal.id}:{all:true});
+ const message=$('command-result');message.hidden=false;message.textContent=`Удалено сигналов: ${result.deleted}. Сделки в MT5 не изменены.`;
  if(signal){signalCardsOpen.delete(signal.id);signalDetailsOpen.delete(signal.id);}
  await loadSignals();
  }catch(e){error(e.message);}finally{historyDeleting=false;$('delete-history').disabled=false;}
@@ -118,7 +118,7 @@ function signalCard(signal){
  const heading=node('summary',`${body.side} · ${body.symbol} | ${entry} / ${created}`,'signal-heading');
  heading.title='Время создания: МСК. Нажмите, чтобы развернуть или свернуть сигнал.';
  card.append(heading,content);
- if(signal.archived){const remove=node('button','Удалить','danger');remove.onclick=()=>deleteHistory(signal);const actions=node('div','','client-actions');actions.append(remove);content.append(actions);}
+ {const remove=node('button','Удалить','danger');remove.title='Удалить запись сигнала, не закрывая сделки в MT5';remove.onclick=()=>deleteHistory(signal);const actions=node('div','','client-actions');actions.append(remove);content.append(actions);}
  if(signal.archived)content.append(node('p','В истории · исполнение команд смотрите в ответах клиентов.','muted'));
  if(!signal.recipients.length)content.append(node('p','Получателей при публикации: 0.','muted'));
  content.append(node('p',signal.id,'signal-id'),node('p','Вход: '+(Array.isArray(body.entry)?body.entry.join(' — '):body.entry)+' · SL: '+body.stop_loss));
@@ -209,13 +209,13 @@ function renderTelegram(){
  if(!list.children.length)list.append(node('p','Отправок пока нет.','muted'));
 }
 $('telegram-button').onclick=async()=>{
- try{await loadTelegram();const s=telegramData.settings;$('telegram-enabled').checked=s.enabled;$('telegram-monitor').checked=s.monitor_enabled;$('telegram-channel').value=s.channel;$('telegram-token').value='';$('telegram-configured').textContent=s.configured?'Токен сохранён. Введите новый только для замены.':'Токен ещё не задан.';$('telegram-result').textContent='';renderTelegram();$('telegram-dialog').showModal();}catch(e){error(e.message);}
+ try{await loadTelegram();const s=telegramData.settings;$('telegram-enabled').checked=s.enabled;$('telegram-monitor').checked=s.monitor_enabled;$('telegram-channel').value=s.channel;$('telegram-admins').value=s.admin_ids||'';$('telegram-token').value='';$('telegram-configured').textContent=s.configured?'Токен сохранён. Введите новый только для замены.':'Токен ещё не задан.';$('telegram-result').textContent='';renderTelegram();$('telegram-dialog').showModal();}catch(e){error(e.message);}
 };
 $('close-telegram').onclick=()=>{if(!telegramBusy){$('telegram-dialog').close();$('telegram-token').value='';}};
 $('telegram-dialog').addEventListener('cancel',e=>{if(telegramBusy)e.preventDefault();else $('telegram-token').value='';});
 $('telegram-settings-form').onsubmit=async e=>{
  e.preventDefault();if(telegramBusy)return;telegramBusy=true;$('telegram-save').disabled=true;
- try{await api('/telegram/settings',{enabled:$('telegram-enabled').checked,monitor_enabled:$('telegram-monitor').checked,token:$('telegram-token').value.trim(),channel:$('telegram-channel').value.trim()});$('telegram-token').value='';$('telegram-result').textContent='Настройки сохранены.';await loadTelegram();$('telegram-configured').textContent=telegramData.settings.configured?'Токен сохранён.':'Токен ещё не задан.';}catch(e){$('telegram-result').textContent=e.message;}finally{telegramBusy=false;$('telegram-save').disabled=false;}
+ try{await api('/telegram/settings',{enabled:$('telegram-enabled').checked,monitor_enabled:$('telegram-monitor').checked,token:$('telegram-token').value.trim(),channel:$('telegram-channel').value.trim(),admin_ids:$('telegram-admins').value.trim()});$('telegram-token').value='';$('telegram-result').textContent='Настройки сохранены.';await loadTelegram();$('telegram-configured').textContent=telegramData.settings.configured?'Токен сохранён.':'Токен ещё не задан.';}catch(e){$('telegram-result').textContent=e.message;}finally{telegramBusy=false;$('telegram-save').disabled=false;}
 };
 $('telegram-text').addEventListener('input',()=>{telegramDraft=null;});
 $('telegram-message-form').onsubmit=async e=>{

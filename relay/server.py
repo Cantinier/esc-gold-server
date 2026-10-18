@@ -59,7 +59,7 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
 
     @app.get('/telegram')
     def telegram_status():
-        return jsonify(settings=telegram.settings(), messages=telegram.history(),
+        return jsonify(settings=telegram.settings(), messages=sorted(telegram.history()+telegram.admin.history(),key=lambda r:r['created'],reverse=True)[:30],
                        incoming=telegram.inbox.history(),monitor_status=telegram.inbox.detail)
 
     @app.post('/telegram/settings')
@@ -326,6 +326,25 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
                 'SELECT client_id,report FROM delivery_results WHERE command_id=?', (ident,))}
             return jsonify(recipients=json.loads(row[0]), results=results)
 
+    def remove_signal(ident, active_only=False):
+        with lock, closing(sqlite3.connect(dbpath)) as db, db:
+            row=db.execute('SELECT payload,archived FROM signals WHERE id=?',(ident,)).fetchone()
+            if not row or (active_only and row[1]):return 0
+            db.execute('DELETE FROM signal_commands WHERE signal_id=?',(ident,))
+            db.execute('DELETE FROM signals WHERE id=?',(ident,))
+            # published IDs remain as tombstones: deletion never permits re-execution.
+            body=json.loads(row[0])['event_body']
+            telegram.admin.notify(db,'delete:'+ident,f"Сигнал удалён: {body['side']} {body['symbol']}.\nСделки в MT5 не изменены.")
+        telegram.start()
+        return 1
+
+    @app.post('/signals/delete')
+    def delete_signal():
+        body=request.get_json(silent=True)
+        if not isinstance(body,dict) or set(body)!={'id'} or not isinstance(body['id'],str) or not body['id']:
+            return jsonify(error='Укажите ID сигнала.'),400
+        return jsonify(deleted=remove_signal(body['id']))
+
     @app.post('/signals/history/delete')
     def delete_history():
         body = request.get_json(silent=True)
@@ -383,6 +402,10 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
                         db.execute('UPDATE signals SET archived=1 WHERE id=?', (body['signal_id'],))
                 if not from_telegram:
                     telegram.enqueue(db, ident, format_event(event, json.loads(source[0])['event_body'] if source else None))
+                description=format_event(event,json.loads(source[0])['event_body'] if source else None)
+                if kind=='modify_tp':
+                    description=f"Изменить TP {body['tp_index']}: {body['new_tp']}"
+                telegram.admin.notify(db,ident,'Команда отправлена в WebSocket. Получателей: '+str(len(destinations))+'\n'+(description or kind)+'\nОтправка не подтверждает исполнение в MT5.')
             event['event_body']['expires_at'] = time.time() + 120
             raw = json.dumps(event)
             for peer in destinations: peer['queue'].put_nowait(raw)
@@ -489,5 +512,6 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
             with lock:
                 peers.pop(connection_id, None)
 
+    telegram.admin.delete_signal=remove_signal
     telegram.set_publisher(publish_event)
     return app

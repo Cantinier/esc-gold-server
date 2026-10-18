@@ -15,7 +15,7 @@ from signaldesk.wire import validate_event
 def get_updates(token, offset):
     request=Request('https://api.telegram.org/bot'+token+'/getUpdates',
                     data=json.dumps({'offset':offset,'limit':100,'timeout':0,
-                                     'allowed_updates':['channel_post']}).encode(),
+                                     'allowed_updates':['channel_post','message','callback_query']}).encode(),
                     headers={'Content-Type':'application/json'},method='POST')
     try:
         with urlopen(request,timeout=8) as response: data=json.load(response)
@@ -53,7 +53,7 @@ def parse_message(text, ident):
 class TelegramInbox:
     def __init__(self, dbpath, settings, transport=None):
         self.dbpath=dbpath;self.settings=settings;self.transport=transport or get_updates
-        self.publisher=None;self.detail='Мониторинг выключен.'
+        self.publisher=None;self.admin=None;self.detail='Мониторинг выключен.'
         with closing(sqlite3.connect(dbpath)) as db,db:
             db.execute('CREATE TABLE IF NOT EXISTS telegram_offsets(bot TEXT PRIMARY KEY,offset INTEGER)')
             db.execute('''CREATE TABLE IF NOT EXISTS telegram_inbox(
@@ -125,7 +125,8 @@ class TelegramInbox:
 
     def poll(self):
         token,channel,enabled,since=self.settings()
-        if not enabled or not token or self.publisher is None:
+        admins=self.admin.settings()[1] if self.admin else []
+        if not (enabled or admins) or not token or self.publisher is None:
             self.detail='Мониторинг выключен.';return
         bot=hashlib.sha256(token.encode()).hexdigest()
         with closing(sqlite3.connect(self.dbpath)) as db:
@@ -137,11 +138,13 @@ class TelegramInbox:
             if self.settings()!=(token,channel,enabled,since):return
             for update in sorted(updates,key=lambda u:u['update_id']):
                 if update['update_id']<offset:continue
-                if not self.process_update(update,token,channel,since):
+                if self.settings()!=(token,channel,enabled,since):return
+                if self.admin:self.admin.handle(update)
+                if enabled and not self.process_update(update,token,channel,since):
                     self.detail='Очередь клиентов занята. Повторим рассылку.';return
                 offset=update['update_id']+1
                 with closing(sqlite3.connect(self.dbpath)) as db,db:
                     db.execute('INSERT OR REPLACE INTO telegram_offsets VALUES(?,?)',(bot,offset))
-            self.detail='Мониторинг работает. Проверено: '+time.strftime('%H:%M:%S',time.gmtime())+' UTC'
+            self.detail=('Мониторинг работает.' if enabled else 'Чтение канала выключено. Меню администраторов работает.')+' Проверено: '+time.strftime('%H:%M:%S',time.gmtime())+' UTC'
         except ValueError as exc:self.detail=str(exc)
         except Exception:self.detail='Ошибка мониторинга. Повторим проверку; токен не выводится.'
