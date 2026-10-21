@@ -47,7 +47,7 @@ def parse_message(text, ident):
         return {'event_type':'terminate_all_signals','event_body':{'id':ident,'signal_id':ident}}
     stop=re.fullmatch(r'передвиньте стоп на ([0-9]+(?:[.,][0-9]+)?)',normalized)
     if stop:
-        return {'event_type':'modify_sl','event_body':{'id':ident,'new_sl':number(stop[1].replace(',','.'))}}
+        return {'event_type':'modify_all_sl','event_body':{'id':ident,'signal_id':ident,'new_sl':number(stop[1].replace(',','.'))}}
     text=re.sub(r'^новый сигнал\s*:\s*','',text,flags=re.I)
     if not re.match(r'^(BUY|SELL)\s+',text,re.I):return None
     signal=parse_signal(text)
@@ -109,7 +109,7 @@ class TelegramInbox:
                     else:
                         event=parse_message(text,ident)
                         if event is None:state='ignored';detail='Текст не соответствует фильтру.'
-                        elif event['event_type'] in ('cancel_all_orders','terminate_all_signals'):
+                        elif event['event_type'] in ('cancel_all_orders','terminate_all_signals','modify_all_sl'):
                             event=validate_event(event)[0]
                         elif event['event_type']!='open_order':
                             reply=msg.get('reply_to_message')

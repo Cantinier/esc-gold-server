@@ -20,7 +20,7 @@ def number(value):
     return format(result, 'f')
 
 
-CONTROL_TYPES = {'terminate_signal', 'terminate_tp', 'modify_tp', 'breakeven_signal', 'breakeven_tp', 'cancel_orders', 'modify_sl', 'cancel_all_orders', 'terminate_all_signals'}
+CONTROL_TYPES = {'terminate_signal', 'terminate_tp', 'modify_tp', 'breakeven_signal', 'breakeven_tp', 'cancel_orders', 'modify_sl', 'cancel_all_orders', 'terminate_all_signals', 'modify_all_sl'}
 
 
 def validate_control(event):
@@ -29,7 +29,7 @@ def validate_control(event):
     fields = {'id', 'signal_id'}
     if kind in ('terminate_tp', 'modify_tp', 'breakeven_tp'): fields.add('tp_index')
     if kind == 'modify_tp': fields.add('new_tp')
-    if kind == 'modify_sl': fields.add('new_sl')
+    if kind in ('modify_sl','modify_all_sl'): fields.add('new_sl')
     if not isinstance(body, dict) or set(body) != fields:
         raise SignalError('Неверные поля команды управления сигналом.')
     body = body.copy()
@@ -39,7 +39,7 @@ def validate_control(event):
     if 'tp_index' in body and (type(body['tp_index']) is not int or not 1 <= body['tp_index'] <= 20):
         raise SignalError('Номер тейка должен быть от 1 до 20.')
     if kind == 'modify_tp': body['new_tp'] = number(body['new_tp'])
-    if kind == 'modify_sl': body['new_sl'] = number(body['new_sl'])
+    if kind in ('modify_sl','modify_all_sl'): body['new_sl'] = number(body['new_sl'])
     normalized = {'event_type': kind, 'event_body': body}
     return normalized, normalized, kind
 

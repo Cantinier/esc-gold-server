@@ -20,7 +20,7 @@ TEXT='SELL LIMIT XAUUSD\n4185 - 4186\n\nTake profit 1: 4179.58\nTake profit 2: 4
 class IncomingTests(unittest.TestCase):
     def test_extra_command_parsing(self):
         ident=str(uuid.uuid4())
-        for text,kind in [('Закройте все ордера','cancel_all_orders'),('Закройте все позиции!','terminate_all_signals'),('Передвиньте стоп на 4124','modify_sl')]:
+        for text,kind in [('Закройте все ордера','cancel_all_orders'),('Закройте все позиции!','terminate_all_signals'),('Передвиньте стоп на 4124','modify_all_sl')]:
             event=parse_message(text,ident)
             self.assertEqual(event['event_type'],kind)
         self.assertEqual(parse_message('Передвиньте стоп на 4124,50',ident)['event_body']['new_sl'],'4124.50')
@@ -33,13 +33,25 @@ class IncomingTests(unittest.TestCase):
         self.assertEqual(self.inbox.history()[0]['state'],'accepted')
         self.poll(self.post(2),self.post(3))
         self.poll(self.post(4,'Передвиньте стоп на 4200',reply=2))
-        commands=[c for signal in self.signals() for c in signal['commands']]
-        self.assertEqual(commands[0]['kind'],'modify_sl')
+        event=json.loads(self.inbox.history()[0]['event'])
+        self.assertEqual(event['event_type'],'modify_all_sl')
+        self.assertEqual(event['event_body']['signal_id'],event['event_body']['id'])
+        self.assertEqual(self.inbox.history()[0]['state'],'accepted')
         self.assertEqual(self.telegram.history(),[])
         self.poll(self.post(5,'Закройте все позиции'))
         self.assertEqual(self.inbox.history()[0]['state'],'accepted')
         with closing(sqlite3.connect(self.inbox.dbpath)) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM signals WHERE archived=0').fetchone()[0],0)
+
+    def test_global_stop_without_signal_or_valid_reply(self):
+        self.poll(self.post(1,'Передвиньте стоп на 4124',reply=999))
+        item=self.inbox.history()[0]
+        self.assertEqual(item['state'],'accepted')
+        event=json.loads(item['event'])
+        self.assertEqual(event['event_type'],'modify_all_sl')
+        self.assertEqual(event['event_body']['new_sl'],'4124')
+        self.assertEqual(event['event_body']['signal_id'],event['event_body']['id'])
+        self.assertEqual(self.telegram.history(),[])
 
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
