@@ -18,6 +18,29 @@ TEXT='SELL LIMIT XAUUSD\n4185 - 4186\n\nTake profit 1: 4179.58\nTake profit 2: 4
 
 
 class IncomingTests(unittest.TestCase):
+    def test_extra_command_parsing(self):
+        ident=str(uuid.uuid4())
+        for text,kind in [('Закройте все ордера','cancel_all_orders'),('Закройте все позиции!','terminate_all_signals'),('Передвиньте стоп на 4124','modify_sl')]:
+            event=parse_message(text,ident)
+            self.assertEqual(event['event_type'],kind)
+        self.assertEqual(parse_message('Передвиньте стоп на 4124,50',ident)['event_body']['new_sl'],'4124.50')
+        self.assertIsNone(parse_message('Передвиньте стоп на -1',ident))
+        self.assertIsNone(parse_message('Передвиньте стоп на NaN',ident))
+        with self.assertRaises(SignalError):parse_message('Передвиньте стоп на 0',ident)
+
+    def test_global_commands_without_signal_and_stop_reply(self):
+        self.poll(self.post(1,'Закройте все ордера'))
+        self.assertEqual(self.inbox.history()[0]['state'],'accepted')
+        self.poll(self.post(2),self.post(3))
+        self.poll(self.post(4,'Передвиньте стоп на 4200',reply=2))
+        commands=[c for signal in self.signals() for c in signal['commands']]
+        self.assertEqual(commands[0]['kind'],'modify_sl')
+        self.assertEqual(self.telegram.history(),[])
+        self.poll(self.post(5,'Закройте все позиции'))
+        self.assertEqual(self.inbox.history()[0]['state'],'accepted')
+        with closing(sqlite3.connect(self.inbox.dbpath)) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM signals WHERE archived=0').fetchone()[0],0)
+
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name)
         for n,c in [('publisher','p'),('subscriber','s')]: (self.root/(n+'.token')).write_text(c*40)

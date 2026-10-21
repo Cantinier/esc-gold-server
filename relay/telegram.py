@@ -47,7 +47,7 @@ def format_event(event, source=None):
         return (f"{body['side']} {body['symbol']}\n{entry}\n\n" +
                 '\n'.join(f'Take profit {i}: {price}' for i, price in enumerate(body['take_profits'], 1)) +
                 f"\nстоп {body['stop_loss']}")
-    titles = {'breakeven_signal':'Стоп в БУ', 'breakeven_tp':'Стоп в БУ',
+    titles = {'cancel_all_orders':'Отмена ордеров всех сигналов','terminate_all_signals':'Закрытие всех сигналов','cancel_orders':'Отмена ордеров сигнала', 'modify_sl':f"Стоп-лосс: {body.get('new_sl', '')}", 'breakeven_signal':'Стоп в БУ', 'breakeven_tp':'Стоп в БУ',
               'terminate_signal':'Выход из сигнала', 'terminate_tp':'Выход из части сигнала'}
     if kind not in titles:
         return None

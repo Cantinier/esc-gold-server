@@ -9,7 +9,7 @@ import uuid
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from signaldesk.core import parse_signal, SignalError
-from signaldesk.wire import validate_event
+from signaldesk.wire import validate_event, number
 
 
 def get_updates(token, offset):
@@ -41,6 +41,13 @@ def parse_message(text, ident):
         return {'event_type':'terminate_tp','event_body':{'id':ident,'tp_index':index}}
     if normalized=='поставить безубыток':
         return {'event_type':'breakeven_signal','event_body':{'id':ident}}
+    if normalized=='закройте все ордера':
+        return {'event_type':'cancel_all_orders','event_body':{'id':ident,'signal_id':ident}}
+    if normalized=='закройте все позиции':
+        return {'event_type':'terminate_all_signals','event_body':{'id':ident,'signal_id':ident}}
+    stop=re.fullmatch(r'передвиньте стоп на ([0-9]+(?:[.,][0-9]+)?)',normalized)
+    if stop:
+        return {'event_type':'modify_sl','event_body':{'id':ident,'new_sl':number(stop[1].replace(',','.'))}}
     text=re.sub(r'^новый сигнал\s*:\s*','',text,flags=re.I)
     if not re.match(r'^(BUY|SELL)\s+',text,re.I):return None
     signal=parse_signal(text)
@@ -102,6 +109,8 @@ class TelegramInbox:
                     else:
                         event=parse_message(text,ident)
                         if event is None:state='ignored';detail='Текст не соответствует фильтру.'
+                        elif event['event_type'] in ('cancel_all_orders','terminate_all_signals'):
+                            event=validate_event(event)[0]
                         elif event['event_type']!='open_order':
                             reply=msg.get('reply_to_message')
                             reply_id=reply.get('message_id') if isinstance(reply,dict) else None

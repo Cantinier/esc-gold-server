@@ -398,6 +398,8 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
                 else:
                     db.execute('INSERT INTO signal_commands VALUES(?,?,?,?,?,?,?)',
                                (ident,body['signal_id'],kind,json.dumps(event),json.dumps(recipients),'{}',time.time()))
+                    if kind == 'terminate_all_signals':
+                        db.execute('UPDATE signals SET archived=1')
                     if kind == 'terminate_signal':
                         db.execute('UPDATE signals SET archived=1 WHERE id=?', (body['signal_id'],))
                 if not from_telegram:
