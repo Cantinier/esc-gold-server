@@ -10,3 +10,4 @@ backups/
 *.sqlite3*
 *.log
 *.tar.gz
+compose.override.yaml
