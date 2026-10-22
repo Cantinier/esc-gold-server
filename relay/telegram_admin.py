@@ -1,6 +1,7 @@
 """Private administrator menu and durable notifications, separate from channel posts."""
 from contextlib import closing
 import hashlib
+from html import escape
 import json
 import re
 import secrets
@@ -119,7 +120,12 @@ class TelegramAdmin:
             # Do not process a backlog of private commands when a new admin is configured.
             if time.time()-message.get('date',0) > 120: return
             with closing(sqlite3.connect(self.dbpath)) as db, db:
-                if text in ('/start','/menu'):
+                sticker=message.get('sticker')
+                if isinstance(sticker,dict) and isinstance(sticker.get('file_unique_id'),str) and sticker['file_unique_id']:
+                    self.enqueue(db,prefix,chat,'sendMessage',{'chat_id':chat,
+                        'text':'file_unique_id:\n<code>'+escape(sticker['file_unique_id'])+'</code>',
+                        'parse_mode':'HTML','reply_parameters':{'message_id':message['message_id']}})
+                elif text in ('/start','/menu'):
                     self.enqueue(db,prefix,chat,'sendMessage',{'chat_id':chat,'text':'Меню администратора','reply_markup':self.keyboard()})
                 elif text in ('Активные сигналы','/signals'):
                     self.enqueue(db,prefix,chat,'sendMessage',self.page(db,chat,0))

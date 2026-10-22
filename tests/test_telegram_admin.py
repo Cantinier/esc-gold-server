@@ -35,6 +35,24 @@ class AdminTests(unittest.TestCase):
         self.telegram.inbox.transport=lambda *args:list(updates)
         self.telegram.inbox.poll()
 
+    def test_private_admin_sticker_id_only_and_deduplicated(self):
+        self.configure_admins()
+        for uid,flags in enumerate(({},dict(is_animated=True),dict(is_video=True)),1):
+            update=self.message(uid,text='',sticker=dict(file_unique_id='unique_'+str(uid),file_id='download-id',**flags))
+            self.poll(update);self.poll(update)
+        self.assertEqual(len(self.jobs()),3)
+        body=self.jobs()[-1][2]
+        self.assertEqual(body['text'],'file_unique_id:\n<code>unique_3</code>')
+        self.assertEqual(body['reply_parameters'],{'message_id':3})
+        self.poll(self.message(4,chat='99999',sticker={'file_unique_id':'other'}),
+                  self.message(5,date=0,sticker={'file_unique_id':'old'}))
+        group=self.message(6,sticker={'file_unique_id':'group'})
+        group['message']['chat']['type']='group'
+        self.poll(group)
+        self.assertEqual(len(self.jobs()),3)
+        with closing(sqlite3.connect(self.telegram.dbpath)) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM signal_commands').fetchone()[0],0)
+
     def test_admin_id_validation_and_preservation(self):
         self.assertEqual(self.configure_admins('12345, 67890,12345').json['admin_ids'],'12345, 67890')
         for ids in ['-12345','abc','12345,','0','1.2',12345]:
