@@ -56,7 +56,7 @@ def parse_message(text, ident):
     signal=parse_signal(text)
     body=dict(id=ident,side=signal.side,symbol=signal.symbol,
               entry=str(signal.low) if signal.low==signal.high else [str(signal.low),str(signal.high)],
-              take_profits=list(map(str,signal.targets)),stop_loss=str(signal.stop))
+              take_profits=list(map(str,signal.targets)),stop_loss=str(signal.stop), **({"limit":True} if signal.limit else {}))
     return validate_event({'event_type':'open_order','event_body':body})[0]
 
 

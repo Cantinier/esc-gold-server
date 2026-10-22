@@ -1,11 +1,11 @@
 'use strict';
 const $=id=>document.getElementById(id);let token='',checked=null,busy=false,locked=false;
-const ids=['id','side','symbol','entry','end','targets','stop'];
+const ids=['limit','id','side','symbol','entry','end','targets','stop'];
 function uuid(){const bytes=crypto.getRandomValues(new Uint8Array(16));bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;const s=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');return `${s.slice(0,8)}-${s.slice(8,12)}-${s.slice(12,16)}-${s.slice(16,20)}-${s.slice(20)}`;}
 function error(message=''){if(message)activity.log('Ошибка: '+message);$('error').hidden=!message;$('error').textContent=message;}
-function save(){sessionStorage.setItem('sender-draft',JSON.stringify({values:Object.fromEntries(ids.map(id=>[id,$(id).value])),locked}));}
+function save(){sessionStorage.setItem('sender-draft',JSON.stringify({values:Object.fromEntries(ids.map(id=>[id,id==='limit'?$(id).checked:$(id).value])),locked}));}
 function price(v){v=v.trim().replace(',','.');if(!/^\d+(\.\d+)?$/.test(v)||!Number.isFinite(Number(v))||Number(v)<=0)throw Error('Введите положительные цены. Каждый тейк — с новой строки.');return v;}
-function payload(){return {event_type:'open_order',event_body:{id:$('id').value,side:$('side').value,symbol:$('symbol').value,entry:$('end').value.trim()?[price($('entry').value),price($('end').value)]:price($('entry').value),take_profits:$('targets').value.trim().split(/\n|;/).map(price),stop_loss:price($('stop').value)}};}
+function payload(){return {event_type:'open_order',event_body:{id:$('id').value,side:$('side').value,limit:$('limit').checked,symbol:$('symbol').value,entry:$('end').value.trim()?[price($('entry').value),price($('end').value)]:price($('entry').value),take_profits:$('targets').value.trim().split(/\n|;/).map(price),stop_loss:price($('stop').value)}};}
 function render(){try{$('json').textContent=JSON.stringify(payload(),null,2);}catch{$('json').textContent='Заполните вход, тейки и стоп — здесь появится JSON.';}}
 function buttons(){$('check').disabled=busy;$('new').disabled=busy;$('send').disabled=busy||!checked;$('fields').disabled=busy||locked;}
 async function rawApi(path,body){const r=await fetch(path,{method:body?'POST':'GET',headers:{Authorization:'Basic '+btoa(String.fromCharCode(...new TextEncoder().encode('publisher:'+token))),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});let data;try{data=await r.json();}catch{throw Error('Сервер вернул неверный ответ. Повторите с тем же ID.');}if(!r.ok){if(r.status===401)throw Error('Неверный пароль отправителя.');const messages={'No desktop clients connected; signal not accepted':'Нет подключённых десктопов. Подключите WebSocket в приложении.','Subscriber queue full; signal not accepted':'Очередь подписчика заполнена. Повторите позже с тем же ID.'};throw Error(messages[data.error]||data.error||(r.status===409?'Этот ID уже использован с другими параметрами.':'Ошибка сервера. Повторите с тем же ID.'));}return data;}
@@ -29,8 +29,8 @@ $('logout').onclick=()=>{activity.stop();$('activity-panel').hidden=true;closeCl
 for(const id of ids)$(id).addEventListener('input',()=>{checked=null;$('badge').textContent='Черновик';$('result').textContent='Сначала проверьте параметры.';save();render();buttons();});
 $('signal-form').onsubmit=async e=>{e.preventDefault();if(busy)return;busy=true;checked=null;buttons();error();try{const data=await api('/validate',payload());checked=data;$('json').textContent=JSON.stringify(data,null,2);$('badge').textContent='Проверен';$('result').textContent=locked?'Параметры зафиксированы. Повторная отправка использует тот же ID.':'Проверка пройдена. Отправка автоматически запускает открытие ордеров в подключённых десктопах.';}catch(e){error(e.message);}finally{busy=false;buttons();}};
 $('send').onclick=async()=>{if(busy||!checked)return;busy=true;locked=true;save();buttons();error();try{const r=await api('/signals',checked);$('result').textContent=r.duplicate?'Этот ID уже принят ранее. Повторная рассылка не выполнялась.':`Сигнал принят для рассылки. Подключённых десктопов: ${r.queued_clients}. Исполнение проверьте в MT5.`;$('badge').textContent='Принят';checked=null;}catch(e){error(e.message);$('result').textContent='Результат не подтверждён. Можно повторить отправку с тем же ID; новый сигнал не создаётся.';}finally{busy=false;buttons();await status();}};
-$('new').onclick=()=>{if(busy)return;locked=false;checked=null;for(const id of ['entry','end','targets','stop'])$(id).value='';$('id').value=uuid();$('badge').textContent='Черновик';$('result').textContent='Сначала проверьте параметры.';error();save();render();buttons();};
-try{const draft=JSON.parse(sessionStorage.getItem('sender-draft'));if(draft){for(const id of ids)if(typeof draft.values?.[id]==='string')$(id).value=draft.values[id];locked=!!draft.locked;}}catch{}
+$('new').onclick=()=>{if(busy)return;locked=false;checked=null;for(const id of ['entry','end','targets','stop'])$(id).value='';$('limit').checked=false;$('id').value=uuid();$('badge').textContent='Черновик';$('result').textContent='Сначала проверьте параметры.';error();save();render();buttons();};
+try{const draft=JSON.parse(sessionStorage.getItem('sender-draft'));if(draft){for(const id of ids)if(typeof draft.values?.[id]==='string')$(id).value=draft.values[id];$('limit').checked=draft.values?.limit===true;locked=!!draft.locked;}}catch{}
 if(!$('id').value)$('id').value=uuid();save();render();buttons();setInterval(()=>{if(!document.hidden)status();},5000);
 
 let clientActionBusy=false,clientSaving=false;
@@ -115,7 +115,7 @@ function signalCard(signal){
  card.dataset.cardId=signal.id;card.open=signalCardsOpen.get(signal.id)||false;
  const entry=Array.isArray(body.entry)?body.entry.join(' — '):body.entry;
  const created=new Date(signal.created*1000).toLocaleString('ru-RU',{timeZone:'Europe/Moscow',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
- const heading=node('summary',`${body.side} · ${body.symbol} | ${entry} / ${created}`,'signal-heading');
+ const heading=node('summary',`${body.side}${body.limit?' LIMIT':''} · ${body.symbol} | ${entry} / ${created}`,'signal-heading');
  heading.title='Время создания: МСК. Нажмите, чтобы развернуть или свернуть сигнал.';
  card.append(heading,content);
  {const remove=node('button','Удалить','danger');remove.title='Удалить запись сигнала, не закрывая сделки в MT5';remove.onclick=()=>deleteHistory(signal);const actions=node('div','','client-actions');actions.append(remove);content.append(actions);}

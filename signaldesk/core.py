@@ -15,6 +15,7 @@ class Signal:
     high: Decimal
     targets: tuple[Decimal, ...]
     stop: Decimal
+    limit: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ def parse_signal(text: str) -> Signal:
         valid = stop < lo and all(t > hi for t in values) and list(values) == sorted(values)
     if not valid:
         raise SignalError('Проверьте стоп и тейки: тейки должны идти от ближайшего к дальнему по направлению сделки.')
-    return Signal(side, head[2].upper(), lo, hi, values, stop)
+    return Signal(side, head[2].upper(), lo, hi, values, stop, bool(re.search(r"\bLIMIT\b", head[0], re.I)))
 
 
 def split_total_lot(total, count, step, minimum, maximum):
@@ -90,13 +91,18 @@ def split_total_lot(total, count, step, minimum, maximum):
     return per_order
 
 
-def grid(signal: Signal, lot=Decimal('0.01'), tick=None) -> tuple[Leg, ...]:
+def grid(signal: Signal, lot=Decimal('0.01'), tick=None, entry_offset_percent=0) -> tuple[Leg, ...]:
     lot = dec(lot)
     if not lot.is_finite() or lot <= 0:
         raise SignalError('Лот должен быть положительным числом.')
     n = len(signal.targets)
-    start, end = (signal.low, signal.high) if signal.side == 'SELL' else (signal.high, signal.low)
-    entries = [(start + end) / 2] if n == 1 else [start + (end - start) * i / (n - 1) for i in range(n)]
+    offset = dec(entry_offset_percent)
+    if not offset.is_finite() or not 0 <= offset <= 50:
+        raise SignalError('Смещение входов должно быть от 0 до 50%.')
+    inset = (signal.high - signal.low) * offset / 100
+    low, high = signal.low + inset, signal.high - inset
+    start, end = (low, high) if signal.side == 'SELL' else (high, low)
+    entries = [(start + end) / 2] * n if not signal.limit or n == 1 or low == high else [start + (end - start) * i / (n - 1) for i in range(n)]
     if tick is not None:
         tick = dec(tick)
         entries = [(e / tick).quantize(Decimal('1'), rounding=ROUND_HALF_UP) * tick for e in entries]
@@ -104,6 +110,6 @@ def grid(signal: Signal, lot=Decimal('0.01'), tick=None) -> tuple[Leg, ...]:
             raise SignalError('После округления по шагу брокера вход выходит за диапазон.')
         if any(p % tick != 0 for p in (*signal.targets, signal.stop)):
             raise SignalError('Стоп или тейк не кратен шагу цены брокера. Исправьте сигнал.')
-        if signal.low != signal.high and len(set(entries)) != n:
+        if signal.limit and low != high and len(set(entries)) != n:
             raise SignalError('Диапазон слишком узкий для разных входов с шагом цены брокера.')
     return tuple(Leg(e, tp, signal.stop, lot) for e, tp in zip(entries, signal.targets))

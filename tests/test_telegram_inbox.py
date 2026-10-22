@@ -18,6 +18,19 @@ TEXT='SELL LIMIT XAUUSD\n4185 - 4186\n\nTake profit 1: 4179.58\nTake profit 2: 4
 
 
 class IncomingTests(unittest.TestCase):
+    def test_limit_survives_telegram_and_wire(self):
+        from signaldesk.wire import validate_event
+        from relay.telegram import format_event
+        event=parse_message(TEXT,str(uuid.uuid4()))
+        self.assertTrue(event['event_body']['limit'])
+        normalized,signal,text=validate_event(event)
+        self.assertTrue(signal.limit)
+        self.assertIn('SELL LIMIT XAUUSD',format_event(normalized))
+        plain=parse_message(TEXT.replace(' LIMIT',''),str(uuid.uuid4()))
+        self.assertFalse(validate_event(plain)[1].limit)
+        event['event_body']['limit']='true'
+        with self.assertRaises(SignalError):validate_event(event)
+
     def test_completion_phrase_in_text(self):
         ident=str(uuid.uuid4())
         for text in ('Ушли в БУ', 'Итоги: ушли в бу! Всем спасибо.', '✅ УШЛИ  В\nБУ — остатки закрываем.', TEXT+'\nПо итогу ушли в БУ.'):

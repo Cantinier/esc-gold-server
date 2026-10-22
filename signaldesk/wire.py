@@ -51,7 +51,7 @@ def validate_event(event):
         raise SignalError('Нужны event_type: open_order и event_body.')
     body = event['event_body']
     fields = {'id', 'side', 'symbol', 'entry', 'take_profits', 'stop_loss'}
-    if not isinstance(body, dict) or set(body) != fields:
+    if not isinstance(body, dict) or set(body) - {'limit'} != fields:
         raise SignalError('event_body: id, side, symbol, entry, take_profits, stop_loss.')
     try:
         ident = str(uuid.UUID(body['id']))
@@ -59,6 +59,8 @@ def validate_event(event):
         raise SignalError('id должен быть UUID.') from None
     if not isinstance(body['side'], str) or not isinstance(body['symbol'], str):
         raise SignalError('Неверное направление или инструмент.')
+    limit=body.get('limit',False)
+    if type(limit) is not bool:raise SignalError('limit должен быть true или false.')
     side = body['side'].upper()
     symbol = body['symbol'].upper()
     if side not in ('BUY', 'SELL') or symbol not in ('XAUUSD', 'XAGUSD'):
@@ -77,9 +79,9 @@ def validate_event(event):
         raise SignalError('take_profits — массив из 1–20 цен.')
     targets = [number(v) for v in targets]
     stop = number(body['stop_loss'])
-    text = f'{side} {symbol}\n{entry_text}\n' + '\n'.join(f'TP {i}: {v}' for i, v in enumerate(targets, 1)) + f'\nSL: {stop}'
+    text = f"{side}{' LIMIT' if limit else ''} {symbol}\n{entry_text}\n" + '\n'.join(f'TP {i}: {v}' for i, v in enumerate(targets, 1)) + f'\nSL: {stop}'
     signal = parse_signal(text)
-    normalized = {'event_type': 'open_order', 'event_body': dict(id=ident, side=side, symbol=symbol, entry=entry, take_profits=targets, stop_loss=stop)}
+    normalized = {'event_type': 'open_order', 'event_body': dict(id=ident, side=side, symbol=symbol, entry=entry, take_profits=targets, stop_loss=stop, **({"limit":True} if limit else {}))}
     return normalized, signal, text
 
 
