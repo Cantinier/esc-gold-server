@@ -18,6 +18,26 @@ TEXT='SELL LIMIT XAUUSD\n4185 - 4186\n\nTake profit 1: 4179.58\nTake profit 2: 4
 
 
 class IncomingTests(unittest.TestCase):
+    def test_completion_phrase_in_text(self):
+        ident=str(uuid.uuid4())
+        for text in ('Ушли в БУ', 'Итоги: ушли в бу! Всем спасибо.', '✅ УШЛИ  В\nБУ — остатки закрываем.', TEXT+'\nПо итогу ушли в БУ.'):
+            self.assertEqual(parse_message(text,ident),{'event_type':'terminate_all_signals','event_body':{'id':ident,'signal_id':ident}})
+        for text in ('Поставить безубыток!', 'Ушли в бурю', 'Ушли в прибыль'):
+            event=parse_message(text,ident)
+            self.assertTrue(event is None or event['event_type']!='terminate_all_signals')
+
+    def test_completion_global_deduplicated_without_echo(self):
+        self.poll(self.post(1),self.post(2))
+        update=self.post(3,'Завершили торговлю, ушли в БУ. До завтра!',reply=999)
+        self.poll(update);self.poll(update)
+        item=self.inbox.history()[0]
+        self.assertEqual(item['state'],'accepted')
+        self.assertEqual(json.loads(item['event'])['event_type'],'terminate_all_signals')
+        self.assertEqual(len(self.inbox.history()),3)
+        with closing(sqlite3.connect(self.inbox.dbpath)) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM signals WHERE archived=0').fetchone()[0],0)
+        self.assertEqual(self.telegram.history(),[])
+
     def test_extra_command_parsing(self):
         ident=str(uuid.uuid4())
         for text,kind in [('Закройте все ордера','cancel_all_orders'),('Закройте все позиции!','terminate_all_signals'),('Передвиньте стоп на 4124','modify_all_sl')]:

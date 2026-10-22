@@ -34,6 +34,9 @@ ORDINALS=dict(zip(('первый','второй','третий','четверт�
 def parse_message(text, ident):
     text=text.strip().replace('\u00a0',' ')
     normalized=' '.join(text.lower().replace('ё','е').split()).rstrip('!. ')
+    # Completion phrase takes precedence over other text in the message.
+    if re.search(r'\bушли в бу\b',normalized):
+        return {'event_type':'terminate_all_signals','event_body':{'id':ident,'signal_id':ident}}
     close=re.fullmatch(r'закройте (\d+|'+ '|'.join(ORDINALS)+r') тейк[ -]профит',normalized)
     if close:
         value=close[1];index=int(value) if value.isdigit() else ORDINALS[value]
