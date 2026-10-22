@@ -112,6 +112,20 @@ class IncomingTests(unittest.TestCase):
     def poll(self,*updates):
         self.inbox.transport=lambda token,offset:list(updates);self.inbox.poll()
     def signals(self):return self.http.get('/signals',headers=self.headers).json['signals']
+    def test_stickers_trigger_global_read_only_check_once_without_echo(self):
+        for mid,flags in enumerate(({}, {'is_animated':True}, {'is_video':True}),1):
+            update=self.post(mid,'',sticker=dict(file_id='sticker',**flags))
+            self.poll(update);self.poll(update)
+            item=self.inbox.history()[0]
+            self.assertEqual(item['state'],'accepted')
+            self.assertEqual(json.loads(item['event'])['event_type'],'check_take_profits')
+        self.assertEqual(self.signals(),[])
+        self.assertEqual(self.telegram.history(),[])
+        with closing(sqlite3.connect(self.inbox.dbpath)) as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM signal_commands').fetchone()[0],3)
+        self.poll(self.post(4,'',sticker={},date=int(time.time()-300)))
+        self.assertEqual(self.inbox.history()[0]['state'],'ignored')
+
     def test_parser_optional_limit_variable_targets_and_entries(self):
         for text in [TEXT,TEXT.replace(' LIMIT',''),TEXT.replace('4185 - 4186','4185'),TEXT.replace('Take profit 2: 4168.65\n','')]:
             self.assertEqual(parse_message(text,str(uuid.uuid4()))['event_type'],'open_order')
@@ -174,6 +188,9 @@ class IncomingTests(unittest.TestCase):
                 self.poll(self.post(1))
                 event=json.loads(ws.recv(timeout=3))
                 self.assertEqual(event['event_type'],'open_order')
+                self.poll(self.post(2,'',sticker={'file_id':'test'}))
+                event=json.loads(ws.recv(timeout=3))
+                self.assertEqual(event['event_type'],'check_take_profits')
                 self.assertGreater(event['event_body']['expires_at'],time.time())
                 self.assertEqual(self.telegram.history(),[])
         finally:server.shutdown();server.server_close()

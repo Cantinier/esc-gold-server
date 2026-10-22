@@ -20,7 +20,7 @@ def number(value):
     return format(result, 'f')
 
 
-CONTROL_TYPES = {'terminate_signal', 'terminate_tp', 'modify_tp', 'breakeven_signal', 'breakeven_tp', 'cancel_orders', 'modify_sl', 'cancel_all_orders', 'terminate_all_signals', 'modify_all_sl'}
+CONTROL_TYPES = {'check_take_profits', 'terminate_signal', 'terminate_tp', 'modify_tp', 'breakeven_signal', 'breakeven_tp', 'cancel_orders', 'modify_sl', 'cancel_all_orders', 'terminate_all_signals', 'modify_all_sl'}
 
 
 def validate_control(event):

@@ -47,7 +47,7 @@ def format_event(event, source=None):
         return (f"{body['side']}{' LIMIT' if body.get('limit') else ''} {body['symbol']}\n{entry}\n\n" +
                 '\n'.join(f'Take profit {i}: {price}' for i, price in enumerate(body['take_profits'], 1)) +
                 f"\nстоп {body['stop_loss']}")
-    titles = {'modify_all_sl':f"Стоп-лосс всех сигналов: {body.get('new_sl', '')}",'cancel_all_orders':'Отмена ордеров всех сигналов','terminate_all_signals':'Закрытие всех сигналов','cancel_orders':'Отмена ордеров сигнала', 'modify_sl':f"Стоп-лосс: {body.get('new_sl', '')}", 'breakeven_signal':'Стоп по середине сигнала', 'breakeven_tp':'Стоп по середине сигнала',
+    titles = {'check_take_profits':'Проверка закрытий по TP', 'modify_all_sl':f"Стоп-лосс всех сигналов: {body.get('new_sl', '')}",'cancel_all_orders':'Отмена ордеров всех сигналов','terminate_all_signals':'Закрытие всех сигналов','cancel_orders':'Отмена ордеров сигнала', 'modify_sl':f"Стоп-лосс: {body.get('new_sl', '')}", 'breakeven_signal':'Стоп по середине сигнала', 'breakeven_tp':'Стоп по середине сигнала',
               'terminate_signal':'Выход из сигнала', 'terminate_tp':'Выход из части сигнала'}
     if kind not in titles:
         return None

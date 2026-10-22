@@ -110,9 +110,9 @@ class TelegramInbox:
                     elif db.execute("SELECT 1 FROM telegram_outbox WHERE channel IN (?,?) AND (message_id=? OR (state IN ('pending','sending','unknown') AND text=? AND created>?))",(chat,channel,mid,text,time.time()-180)).fetchone():
                         state='ignored';detail='Собственная публикация бота: повторная рассылка не нужна.'
                     else:
-                        event=parse_message(text,ident)
+                        event=({'event_type':'check_take_profits','event_body':{'id':ident,'signal_id':ident}} if isinstance(msg.get('sticker'),dict) else parse_message(text,ident))
                         if event is None:state='ignored';detail='Текст не соответствует фильтру.'
-                        elif event['event_type'] in ('cancel_all_orders','terminate_all_signals','modify_all_sl'):
+                        elif event['event_type'] in ('check_take_profits','cancel_all_orders','terminate_all_signals','modify_all_sl'):
                             event=validate_event(event)[0]
                         elif event['event_type']!='open_order':
                             reply=msg.get('reply_to_message')
