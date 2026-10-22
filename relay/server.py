@@ -388,6 +388,11 @@ def create_app(data_dir=None, telegram_transport=None, telegram_worker=True):
                     source = db.execute('SELECT payload,recipients FROM signals WHERE id=?', (body['signal_id'],)).fetchone()
                     if source and body.get('tp_index',1) > len(json.loads(source[0])['event_body']['take_profits']):
                         return dict(error='Такого тейка нет у сигнала.'), 400
+                    if source and kind in ('breakeven_signal','breakeven_tp'):
+                        from decimal import Decimal
+                        entry=json.loads(source[0])['event_body']['entry']
+                        bounds=entry if isinstance(entry,list) else [entry,entry]
+                        body['signal_midpoint']=format((Decimal(str(bounds[0]))+Decimal(str(bounds[1])))/2,'f')
                     original = json.loads(source[1]) if source else []
                 if any(p['queue'].full() for p in destinations):
                     return dict(error='Subscriber queue full; signal not accepted'), 503

@@ -48,7 +48,7 @@ def parse_message(text, ident):
         return {'event_type':'cancel_all_orders','event_body':{'id':ident,'signal_id':ident}}
     if normalized=='закройте все позиции':
         return {'event_type':'terminate_all_signals','event_body':{'id':ident,'signal_id':ident}}
-    stop=re.fullmatch(r'передвиньте стоп на ([0-9]+(?:[.,][0-9]+)?)',normalized)
+    stop=re.fullmatch(r'(?:передвиньте )?стоп на ([0-9]+(?:[.,][0-9]+)?)',normalized)
     if stop:
         return {'event_type':'modify_all_sl','event_body':{'id':ident,'signal_id':ident,'new_sl':number(stop[1].replace(',','.'))}}
     text=re.sub(r'^новый сигнал\s*:\s*','',text,flags=re.I)

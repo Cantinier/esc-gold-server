@@ -30,6 +30,7 @@ def validate_control(event):
     if kind in ('terminate_tp', 'modify_tp', 'breakeven_tp'): fields.add('tp_index')
     if kind == 'modify_tp': fields.add('new_tp')
     if kind in ('modify_sl','modify_all_sl'): fields.add('new_sl')
+    if kind in ('breakeven_signal','breakeven_tp') and isinstance(body,dict) and 'signal_midpoint' in body:fields.add('signal_midpoint')
     if not isinstance(body, dict) or set(body) != fields:
         raise SignalError('Неверные поля команды управления сигналом.')
     body = body.copy()
@@ -38,6 +39,7 @@ def validate_control(event):
         except (ValueError, TypeError, AttributeError): raise SignalError('ID должен быть UUID.') from None
     if 'tp_index' in body and (type(body['tp_index']) is not int or not 1 <= body['tp_index'] <= 20):
         raise SignalError('Номер тейка должен быть от 1 до 20.')
+    if 'signal_midpoint' in body:body['signal_midpoint']=number(body['signal_midpoint'])
     if kind == 'modify_tp': body['new_tp'] = number(body['new_tp'])
     if kind in ('modify_sl','modify_all_sl'): body['new_sl'] = number(body['new_sl'])
     normalized = {'event_type': kind, 'event_body': body}

@@ -62,7 +62,7 @@ class TelegramTests(unittest.TestCase):
         self.assertEqual(len(self.telegram.history()),1)
         self.telegram.process_one()
         self.assertEqual(self.sent[0][2], 'SELL XAUUSD\n4185 - 4186\n\nTake profit 1: 4179.58\nTake profit 2: 4168.65\nTake profit 3: 4156.53\nстоп 4193.74')
-        for kind, title in [('breakeven_signal','Стоп в БУ'),('terminate_signal','Выход из сигнала')]:
+        for kind, title in [('breakeven_signal','Стоп по середине сигнала'),('terminate_signal','Выход из сигнала')]:
             command={'event_type':kind,'event_body':{'id':str(uuid.uuid4()),'signal_id':event['event_body']['id']}}
             self.assertEqual(self.post('/signals',command).status_code,202)
             self.telegram.process_one()

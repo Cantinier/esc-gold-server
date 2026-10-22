@@ -53,7 +53,7 @@ class IncomingTests(unittest.TestCase):
 
     def test_extra_command_parsing(self):
         ident=str(uuid.uuid4())
-        for text,kind in [('Закройте все ордера','cancel_all_orders'),('Закройте все позиции!','terminate_all_signals'),('Передвиньте стоп на 4124','modify_all_sl')]:
+        for text,kind in [('Закройте все ордера','cancel_all_orders'),('Закройте все позиции!','terminate_all_signals'),('Передвиньте стоп на 4124','modify_all_sl'),('Стоп на 90','modify_all_sl'),('Стоп на 90,5!','modify_all_sl')]:
             event=parse_message(text,ident)
             self.assertEqual(event['event_type'],kind)
         self.assertEqual(parse_message('Передвиньте стоп на 4124,50',ident)['event_body']['new_sl'],'4124.50')
@@ -75,6 +75,13 @@ class IncomingTests(unittest.TestCase):
         self.assertEqual(self.inbox.history()[0]['state'],'accepted')
         with closing(sqlite3.connect(self.inbox.dbpath)) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM signals WHERE archived=0').fetchone()[0],0)
+
+    def test_breakeven_published_with_original_midpoint(self):
+        self.poll(self.post(1))
+        self.poll(self.post(2,'Поставить безубыток!'))
+        with closing(sqlite3.connect(self.inbox.dbpath)) as db:
+            row=db.execute('SELECT payload FROM signal_commands').fetchone()
+        self.assertEqual(json.loads(row[0])['event_body']['signal_midpoint'],'4185.5')
 
     def test_global_stop_without_signal_or_valid_reply(self):
         self.poll(self.post(1,'Передвиньте стоп на 4124',reply=999))
